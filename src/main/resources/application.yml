@@ -74,3 +74,6 @@ knife4j:
         api-rule: package
         api-rule-resources:
           - com.hhj.quizCraft.controller
+# AI 配置
+ai:
+  apiKey: 21c8187d54118a370cc219d832a1cb2f.IkhCOk0yedyCleOC
