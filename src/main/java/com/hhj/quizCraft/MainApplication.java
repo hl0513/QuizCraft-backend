@@ -11,10 +11,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * 主类（项目启动入口）
  *
  * @author <a href="https://github.com/hl0513">程序员泥嚎鸭</a>
- * @from <a href="https://www.yuque.com/dashboard/books">泥嚎鸭的语雀笔记</a>
+ * @from <a href="https://www.yuque.com/nihaoya-htxrz/cw0rmf/eaimho1vm8co6s4c?singleDoc#">泥嚎鸭的语雀笔记</a>
  */
 // todo 如需开启 Redis，须移除 exclude 中的内容
-@SpringBootApplication(exclude = {RedisAutoConfiguration.class})
+@SpringBootApplication
 @MapperScan("com.hhj.quizCraft.mapper")
 @EnableScheduling
 @EnableAspectJAutoProxy(proxyTargetClass = true, exposeProxy = true)

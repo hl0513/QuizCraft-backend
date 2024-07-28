@@ -1,5 +1,6 @@
 package com.hhj.quizCraft.controller;
 
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hhj.quizCraft.annotation.AuthCheck;
@@ -25,6 +26,7 @@ import com.hhj.quizCraft.service.UserAnswerService;
 import com.hhj.quizCraft.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -83,14 +85,19 @@ public class UserAnswerController {
         User loginUser = userService.getLoginUser(request);
         userAnswer.setUserId(loginUser.getId());
         // 写入数据库
-        boolean result = userAnswerService.save(userAnswer);
-        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        try{
+            boolean result = userAnswerService.save(userAnswer);
+            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        }catch (DuplicateKeyException e){
+            // igonre error
+        }
         // 返回新写入的数据 id
         long newUserAnswerId = userAnswer.getId();
         // 调用评分模块
         try {
             UserAnswer userAnswerWithResult = scoringStrategyExecutor.doScore(choices, app);
             userAnswerWithResult.setId(newUserAnswerId);
+            userAnswerWithResult.setAppId(null);
             userAnswerService.updateById(userAnswerWithResult);
         } catch (Exception e) {
             e.printStackTrace();
@@ -269,4 +276,8 @@ public class UserAnswerController {
     }
 
     // endregion
+    @GetMapping("/generate/id")
+    public BaseResponse<Long> generateUserAnswerId(){
+        return ResultUtils.success(IdUtil.getSnowflakeNextId());
+    }
 }

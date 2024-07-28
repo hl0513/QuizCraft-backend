@@ -1,5 +1,6 @@
 package com.hhj.quizCraft.controller;
 
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hhj.quizCraft.annotation.AuthCheck;
@@ -20,13 +21,20 @@ import com.hhj.quizCraft.model.vo.QuestionVO;
 import com.hhj.quizCraft.service.AppService;
 import com.hhj.quizCraft.service.QuestionService;
 import com.hhj.quizCraft.service.UserService;
+import com.zhipu.oapi.service.v4.model.ModelData;
+import io.reactivex.Flowable;
+import io.reactivex.Scheduler;
+import io.reactivex.schedulers.Schedulers;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 题目接口
@@ -49,6 +57,9 @@ public class QuestionController {
 
     @Resource
     private AiManager aiManager;
+
+    @Resource
+    private Scheduler vipScheduler;
 
     // region 增删改查
 
@@ -310,5 +321,140 @@ public class QuestionController {
         return ResultUtils.success(questionContentDTOList);
     }
 
+    @GetMapping("/ai_generate/sse")
+    public SseEmitter aiGenerateQuestionSSE(AiGenerateQuestionRequest aiGenerateQuestionRequest,HttpServletRequest request) {
+        ThrowUtils.throwIf(aiGenerateQuestionRequest == null, ErrorCode.PARAMS_ERROR);
+        // 获取参数
+        Long appId = aiGenerateQuestionRequest.getAppId();
+        int questionNumber = aiGenerateQuestionRequest.getQuestionNumber();
+        int optionNumber = aiGenerateQuestionRequest.getOptionNumber();
+        // 获取应用信息
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        // 封装 Prompt
+        String userMessage = getGenerateQuestionUserMessage(app, questionNumber, optionNumber);
+        // 建立 SSE 连接对象， 0 永不超时
+        SseEmitter sseEmitter = new SseEmitter(0L);
+        // AI 生成, SSE 流式返回
+        Flowable<ModelData> modelDataFlowable = aiManager.doStreamRequest(GENERATE_QUESTION_SYSTEM_MESSAGE, userMessage,null);
+        // 左括号计数器，除了默认值外，当回归为 0 时，表示左括号等于右括号，可以截取结果
+        AtomicInteger counter = new AtomicInteger(0);
+        // 拼接题目
+        StringBuilder stringBuilder = new StringBuilder();
+        // 获取登录用户
+        User loginUser = userService.getLoginUser(request);
+        // 判断是否是会员
+        Scheduler scheduler = Schedulers.io();
+        if (loginUser.getUserRole().equals("admin")){
+            scheduler = vipScheduler;
+        }
+
+        modelDataFlowable
+                .observeOn(scheduler)
+                .map(modelData -> modelData.getChoices().get(0).getDelta().getContent())
+                .map(message -> message.replaceAll("\\s",""))
+                .filter(StrUtil::isNotBlank)
+                .flatMap(message -> {
+                    List<Character> charactersList = new ArrayList<>();
+                    for (char c : message.toCharArray()) {
+                        charactersList.add(c);
+                    }
+                    return Flowable.fromIterable(charactersList);
+                })
+                .doOnNext(c-> {
+                    // 如果是 '{' , 则加一
+                    if(c == '{'){
+                        counter.addAndGet(1);
+                    }
+                    if (counter.get() > 0){
+                        stringBuilder.append(c);
+                    }
+                    if(c == '}'){
+                        counter.addAndGet(-1);
+                        if (counter.get() == 0){
+                            // 可以拼接题目，并且通过 SSE 返回
+                            sseEmitter.send(JSONUtil.toJsonStr(stringBuilder.toString()));
+                            // 重置，拼接下一道题
+                            stringBuilder.setLength(0);
+                        }
+                    }
+
+                })
+                .doOnError((e) -> log.error("sse error",e))
+                .doOnComplete(sseEmitter::complete)
+                .subscribe();
+        return sseEmitter;
+    }
+
+    // 仅测试隔离线程池使用
+    @Deprecated
+    @GetMapping("/ai_generate/sse/test")
+    public SseEmitter aiGenerateQuestionSSETest(AiGenerateQuestionRequest aiGenerateQuestionRequest,
+                                                boolean isVip) {
+        ThrowUtils.throwIf(aiGenerateQuestionRequest == null, ErrorCode.PARAMS_ERROR);
+        // 获取参数
+        Long appId = aiGenerateQuestionRequest.getAppId();
+        int questionNumber = aiGenerateQuestionRequest.getQuestionNumber();
+        int optionNumber = aiGenerateQuestionRequest.getOptionNumber();
+        // 获取应用信息
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        // 封装 Prompt
+        String userMessage = getGenerateQuestionUserMessage(app, questionNumber, optionNumber);
+        // 建立 SSE 连接对象， 0 永不超时
+        SseEmitter sseEmitter = new SseEmitter(0L);
+        // AI 生成, SSE 流式返回
+        Flowable<ModelData> modelDataFlowable = aiManager.doStreamRequest(GENERATE_QUESTION_SYSTEM_MESSAGE, userMessage,null);
+        // 左括号计数器，除了默认值外，当回归为 0 时，表示左括号等于右括号，可以截取结果
+        AtomicInteger counter = new AtomicInteger(0);
+        // 拼接题目
+        StringBuilder stringBuilder = new StringBuilder();
+        // 自定义线程池（默认全局线程池）
+        Scheduler scheduler = Schedulers.single();
+        if(isVip){
+            scheduler = vipScheduler;
+        }
+        modelDataFlowable
+                .observeOn(scheduler)
+                .map(modelData -> modelData.getChoices().get(0).getDelta().getContent())
+                .map(message -> message.replaceAll("\\s",""))
+                .filter(StrUtil::isNotBlank)
+                .flatMap(message -> {
+                    List<Character> charactersList = new ArrayList<>();
+                    for (char c : message.toCharArray()) {
+                        charactersList.add(c);
+                    }
+                    return Flowable.fromIterable(charactersList);
+                })
+                .doOnNext(c-> {
+                    // 如果是 '{' , 则加一
+                    if(c == '{'){
+                        counter.addAndGet(1);
+                    }
+                    if (counter.get() > 0){
+                        stringBuilder.append(c);
+                    }
+                    if(c == '}'){
+                        counter.addAndGet(-1);
+                        if (counter.get() == 0){
+                            // 输出当前线程名称
+                            System.out.println(Thread.currentThread().getName());
+                            // 模拟普通用户阻塞
+                            if(!isVip){
+                                Thread.sleep(10000L);
+                            }
+                            // 可以拼接题目，并且通过 SSE 返回
+                            sseEmitter.send(JSONUtil.toJsonStr(stringBuilder.toString()));
+                            // 重置，拼接下一道题
+                            stringBuilder.setLength(0);
+                        }
+                    }
+
+                })
+                .doOnError((e) -> log.error("sse error",e))
+                .doOnComplete(sseEmitter::complete)
+                .subscribe();
+        return sseEmitter;
+    }
     // endregion
 }
