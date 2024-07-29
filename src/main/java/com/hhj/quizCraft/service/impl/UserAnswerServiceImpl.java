@@ -64,7 +64,6 @@ public class UserAnswerServiceImpl extends ServiceImpl<UserAnswerMapper, UserAns
             ThrowUtils.throwIf(id == null || id <= 0, ErrorCode.PARAMS_ERROR,"id非法");
         }
         // 修改数据时，有参数则校验
-        // 补充校验规则
         //  补充校验规则
         if (appId != null) {
             App app = appService.getById(appId);

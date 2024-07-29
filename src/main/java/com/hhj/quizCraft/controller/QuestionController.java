@@ -28,6 +28,8 @@ import io.reactivex.schedulers.Schedulers;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.RequestAttributes;
+import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import javax.annotation.Resource;
@@ -341,16 +343,15 @@ public class QuestionController {
         AtomicInteger counter = new AtomicInteger(0);
         // 拼接题目
         StringBuilder stringBuilder = new StringBuilder();
-        // 获取登录用户
+        /*// 获取登录用户
         User loginUser = userService.getLoginUser(request);
         // 判断是否是会员
         Scheduler scheduler = Schedulers.io();
-        if (loginUser.getUserRole().equals("admin")){
+        if ("admin".equals(loginUser.getUserRole())){
             scheduler = vipScheduler;
-        }
-
+        }*/
         modelDataFlowable
-                .observeOn(scheduler)
+                .observeOn(Schedulers.io())
                 .map(modelData -> modelData.getChoices().get(0).getDelta().getContent())
                 .map(message -> message.replaceAll("\\s",""))
                 .filter(StrUtil::isNotBlank)
@@ -385,6 +386,8 @@ public class QuestionController {
                 .subscribe();
         return sseEmitter;
     }
+
+
 
     // 仅测试隔离线程池使用
     @Deprecated

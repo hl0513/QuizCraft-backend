@@ -19,7 +19,7 @@ public class VipSchedulerConfig {
     @Bean
     public Scheduler vipScheduler() {
         ThreadFactory threadFactory = new ThreadFactory() {
-            private final AtomicInteger threadNumber = new AtomicInteger(0);
+            private final AtomicInteger threadNumber = new AtomicInteger(1);
             @Override
             public Thread newThread(@NotNull Runnable r) {
                 Thread thread = new Thread(r,"VIPThreadPool-" + threadNumber.getAndIncrement());
